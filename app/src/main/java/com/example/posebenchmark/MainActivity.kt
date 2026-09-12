@@ -45,6 +45,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var cameraExecutor: ExecutorService
 
     private var poseLandmarker: PoseLandmarker? = null
+    private val pushUpAnalyzer = PushUpAnalyzer()
+
 
 
 
@@ -589,16 +591,22 @@ class MainActivity : ComponentActivity() {
 
         if (poseDetected) {
 
-            skeletonOverlay.setLandmarks(
-                result.landmarks()[0],
-                        poseImageWidth,
-                poseImageHeight
+            val landmarks = result.landmarks()[0]
+            val frameWidth = poseImageWidth
+            val frameHeight = poseImageHeight
+            val analysis = pushUpAnalyzer.analyze(landmarks, frameWidth, frameHeight)
 
-            )
+            runOnUiThread {
+                skeletonOverlay.setLandmarks(
+                    landmarks, frameWidth, frameHeight
+                )
+                // NOT_READY supplies empty guidance, preserving the partial neutral skeleton.
+                skeletonOverlay.setGuidance(analysis.guidance)
+            }
 
         } else {
 
-            skeletonOverlay.clear()
+            runOnUiThread { skeletonOverlay.clear() }
         }
 
 
