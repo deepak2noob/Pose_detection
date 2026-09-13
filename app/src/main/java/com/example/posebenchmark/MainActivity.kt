@@ -62,6 +62,9 @@ class MainActivity : ComponentActivity() {
     /*
      * Protect analyzer state while switching exercise modes.
      */
+    @Volatile
+    private var exerciseSession = 0L
+
     private val exerciseLock =
         Any()
 
@@ -475,6 +478,7 @@ class MainActivity : ComponentActivity() {
         /*
          * SQUAT is selected by default.
          */
+        skeletonOverlay.setGuidance(PostureGuidance())
         updateSelectorUi()
 
 
@@ -542,6 +546,7 @@ class MainActivity : ComponentActivity() {
              * This prevents an unfinished squat/push-up state
              * from being carried into another exercise.
              */
+            exerciseSession++
             squatExercise.resetSession()
 
             pushUpExercise.resetSession()
@@ -556,6 +561,7 @@ class MainActivity : ComponentActivity() {
             0L
 
 
+        skeletonOverlay.setGuidance(PostureGuidance())
         updateSelectorUi()
 
 
@@ -577,7 +583,7 @@ class MainActivity : ComponentActivity() {
                 ExerciseMode.PUSH_UP ->
 
                     "PUSH-UP\n" +
-                            "Face the camera and keep both arms visible"
+                            "Turn sideways and keep your body visible"
             }
 
 
@@ -632,7 +638,7 @@ class MainActivity : ComponentActivity() {
                 BaseOptions.builder()
 
                     .setDelegate(
-                        Delegate.GPU
+                        Delegate.CPU
                     )
 
                     .setModelAssetPath(
@@ -1023,6 +1029,7 @@ class MainActivity : ComponentActivity() {
          * pose result.
          */
         val activeExercise: ExerciseMode
+        val activeSession: Long
 
 
         // =====================================================
@@ -1030,100 +1037,47 @@ class MainActivity : ComponentActivity() {
         // =====================================================
 
         if (poseDetected) {
-
-            val landmarks =
-                result
-                    .landmarks()[0]
-
-
             val landmarks = result.landmarks()[0]
             val frameWidth = poseImageWidth
             val frameHeight = poseImageHeight
-            val analysis = pushUpAnalyzer.analyze(landmarks, frameWidth, frameHeight)
+            val guidance: PostureGuidance
+
+            synchronized(exerciseLock) {
+                activeExercise = selectedExercise
+                activeSession = exerciseSession
+                guidance = when (activeExercise) {
+                    ExerciseMode.SQUAT -> {
+                        squatResult = squatExercise.analyze(landmarks)
+                        PostureGuidance()
+                    }
+                    ExerciseMode.PUSH_UP -> {
+                        pushUpResult = pushUpExercise.analyze(landmarks)
+                        pushUpAnalyzer.analyze(landmarks, frameWidth, frameHeight).guidance
+                    }
+                }
+            }
 
             runOnUiThread {
-                skeletonOverlay.setLandmarks(
-                    landmarks, frameWidth, frameHeight
-                )
-                // NOT_READY supplies empty guidance, preserving the partial neutral skeleton.
-                skeletonOverlay.setGuidance(analysis.guidance)
-            }
-            skeletonOverlay.setLandmarks(
-                landmarks,
-                poseImageWidth,
-                poseImageHeight
-            )
-
-
-            // =================================================
-            // SELECTED EXERCISE ONLY
-            // =================================================
-
-            synchronized(
-                exerciseLock
-            ) {
-
-                activeExercise =
-                    selectedExercise
-
-
-                when (activeExercise) {
-
-                    ExerciseMode.SQUAT -> {
-
-                        /*
-                         * ONLY SquatExercise runs.
-                         */
-                        squatResult =
-                            squatExercise.analyze(
-                                landmarks
-                            )
-                    }
-
-
-                    ExerciseMode.PUSH_UP -> {
-
-                        /*
-                         * ONLY PushUpExercise runs.
-                         */
-                        pushUpResult =
-                            pushUpExercise.analyze(
-                                landmarks
-                            )
-                    }
+                // Reject queued results from a previous session, including A -> B -> A switches.
+                if (exerciseSession == activeSession) {
+                    skeletonOverlay.setLandmarks(landmarks, frameWidth, frameHeight)
+                    // NOT_READY supplies empty guidance without hiding partial landmarks.
+                    skeletonOverlay.setGuidance(guidance)
                 }
             }
-
-
         } else {
-
-            runOnUiThread { skeletonOverlay.clear() }
-
-
-            synchronized(
-                exerciseLock
-            ) {
-
-                activeExercise =
-                    selectedExercise
-
-
+            synchronized(exerciseLock) {
+                activeExercise = selectedExercise
+                activeSession = exerciseSession
                 when (activeExercise) {
-
-                    ExerciseMode.SQUAT -> {
-
-                        squatExercise.onPoseLost()
-                    }
-
-
-                    ExerciseMode.PUSH_UP -> {
-
-                        pushUpExercise.onPoseLost()
-                    }
+                    ExerciseMode.SQUAT -> squatExercise.onPoseLost()
+                    ExerciseMode.PUSH_UP -> pushUpExercise.onPoseLost()
                 }
+            }
+            runOnUiThread {
+                if (exerciseSession == activeSession) skeletonOverlay.clear()
             }
         }
-
 
         // =====================================================
         // EXERCISE UI
@@ -1294,8 +1248,7 @@ class MainActivity : ComponentActivity() {
                  * that was selected just before the user switched.
                  */
                 if (
-                    selectedExercise ==
-                    activeExercise
+                    exerciseSession == activeSession
                 ) {
 
                     exerciseText.text =
