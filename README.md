@@ -105,7 +105,7 @@ flowchart TD
     Result --> Metrics[Status text and Logcat]
 ```
 
-`MainActivity` owns permission handling, camera binding, model initialization, frame conversion, result handling, and cleanup. Model initialization and camera analysis share a single-thread executor. Status text changes are posted to the UI thread; overlay data is assigned from the result callback and redraws use `postInvalidate()`.
+`MainActivity` owns permission handling, camera binding, model initialization, frame conversion, result handling, and cleanup. Model initialization and camera analysis share a single-thread executor. Status text changes are posted to the UI thread. The overlay publishes a copied landmark list and image dimensions together through a volatile frame reference; each draw uses one stable snapshot, and redraws use `postInvalidate()`.
 
 `SkeletonOverlay` scales normalized coordinates to the analyzed image dimensions, applies a fit-center scale and offsets, and draws connections and points. This assumes that preview and analysis image geometry match; device-specific alignment still needs validation.
 
@@ -123,7 +123,7 @@ On activity destruction, model closure is queued on the executor and the executo
 | [`app/build.gradle.kts`](app/build.gradle.kts) | SDK levels, dependencies, build configuration |
 | [`gradle/libs.versions.toml`](gradle/libs.versions.toml) | AGP version and additional library aliases; some aliases are unused |
 | `gradle/wrapper/`, `gradle/gradle-daemon-jvm.properties` | Gradle distribution and daemon toolchain criteria |
-| `app/src/test/`, `app/src/androidTest/` | Template tests; local tests also contain a second overlay implementation |
+| `app/src/test/`, `app/src/androidTest/` | Template tests and overlay rendering regression tests; local tests also contain a second overlay implementation |
 | `app/src/main/keepRules/rules.keep` | R8 rule template; release optimization is disabled in the build configuration |
 
 ## Configuration
@@ -148,7 +148,7 @@ Camera resolution and target frame rate are not explicitly fixed. Changing the m
 
 ### Automated checks
 
-Review outcome (2026-09-07): using Android Studio's bundled runtime to launch Gradle, `:app:assembleDebug` completed successfully. The combined build/test invocation then failed at `:app:compileDebugUnitTestKotlin` because JUnit imports, `Test`, and `assertEquals` were unresolved. No device tests or lint run were performed during this documentation review.
+Validation outcome (2026-09-13): `:app:assembleDebug`, `:app:testDebugUnitTest`, `:app:lintDebug`, and `:app:connectedDebugAndroidTest` completed successfully using Android Studio's bundled runtime. One unit test and four instrumentation tests passed, including three overlay regressions on the Pixel 7 API 37 emulator. Lint reported 0 errors and 28 warnings. These checks do not validate live camera behavior or pose accuracy.
 
 ```powershell
 .\gradlew.bat :app:testDebugUnitTest
@@ -156,7 +156,7 @@ Review outcome (2026-09-07): using Android Studio's bundled runtime to launch Gr
 .\gradlew.bat :app:connectedDebugAndroidTest
 ```
 
-The current tests only check arithmetic and the application package name. The app dependency block does not declare the JUnit/AndroidX test dependencies those sources import. The version catalog contains test aliases, but they are not wired into the module. Test setup needs repair before these commands can be treated as a working validation suite. `src/test` also defines a second `com.example.posebenchmark.SkeletonOverlay`; it is not a rendering test and should be reconciled with the production class.
+The module now declares JUnit and AndroidX test dependencies using the existing version catalog. Alongside the arithmetic and application package-name checks, instrumentation tests exercise the production overlay when a background update or clear occurs during drawing, and when the caller changes its submitted list. `src/test` still defines a second `com.example.posebenchmark.SkeletonOverlay`; it is not a rendering test and should be reconciled with the production class. The overlay regression tests live in `src/androidTest` and use the production class.
 
 ### Manual smoke test
 
@@ -184,7 +184,7 @@ The current tests only check arithmetic and the application package name. The ap
 - No front-camera switch, GPU selector, alternate model selector, multiperson mode, recording, export, or session history.
 - No warm-up exclusion, latency distribution, thermal measurement, power measurement, or accuracy evaluation.
 - Each analyzed frame creates a bitmap and performs rotation; allocation overhead can affect results.
-- Overlay state is shared between callback and drawing threads without an explicit synchronized snapshot. Result dimensions come from mutable latest-frame fields, rather than a per-result association.
+- The overlay uses a stable snapshot during each draw. Result dimensions still come from mutable latest-frame fields in `MainActivity`, rather than a per-result association.
 - The frame-copy path does not explicitly account for RGBA row padding. Rotation, frame layout, and lifecycle behavior need device testing.
 - UI status strings are hardcoded in English and several dimensions use raw pixels; accessibility, localization, and system-inset behavior are not validated.
 

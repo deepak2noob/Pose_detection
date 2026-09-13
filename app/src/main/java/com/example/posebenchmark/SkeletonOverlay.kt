@@ -16,10 +16,15 @@ class SkeletonOverlay(
         private const val MIN_VISIBILITY = 0.4f
     }
 
-    private var landmarks: List<NormalizedLandmark> = emptyList()
+    private data class OverlayFrame(
+        val landmarks: List<NormalizedLandmark>,
+        val imageWidth: Int,
+        val imageHeight: Int
+    )
 
-    private var imageWidth = 1
-    private var imageHeight = 1
+    // Publish the landmarks and dimensions together for the UI thread.
+    @Volatile
+    private var latestFrame: OverlayFrame? = null
 
     private val pointPaint = Paint().apply {
         color = Color.RED
@@ -97,16 +102,17 @@ class SkeletonOverlay(
         frameWidth: Int,
         frameHeight: Int
     ) {
-        landmarks = newLandmarks
-
-        imageWidth = frameWidth
-        imageHeight = frameHeight
+        latestFrame = OverlayFrame(
+            newLandmarks.toList(),
+            frameWidth,
+            frameHeight
+        )
 
         postInvalidate()
     }
 
     fun clear() {
-        landmarks = emptyList()
+        latestFrame = null
         postInvalidate()
     }
 
@@ -128,6 +134,12 @@ class SkeletonOverlay(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+
+        // Keep this draw on one snapshot even if a result arrives or clears it.
+        val frame = latestFrame ?: return
+        val landmarks = frame.landmarks
+        val imageWidth = frame.imageWidth
+        val imageHeight = frame.imageHeight
 
         if (
             landmarks.isEmpty() ||

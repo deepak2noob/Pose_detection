@@ -44,4 +44,8 @@ dependencies {
 
     //MEDIAPIPE
     implementation("com.google.mediapipe:tasks-vision:1.0.0")
+
+    testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
 }

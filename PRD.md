@@ -98,7 +98,7 @@ There is no warm-up exclusion, controlled input resolution, recorded sample set,
 | Compatibility | Minimum API 24, compile/target API 37; camera hardware optional in manifest | Validate on selected physical devices; decide intended behavior without a rear camera. |
 | Responsiveness | Model setup and frame analysis share one background executor | Verify a responsive UI during initialization and sustained inference. |
 | Rendering | Manual fit-center mapping; no shared CameraX viewport configured | Verify image/overlay agreement across rotation, aspect ratios, and device camera configurations. |
-| Threading | Callback writes overlay fields; drawing reads them; frame dimensions are shared mutable fields | Adopt a coherent result snapshot and validate lifecycle/thread ownership in follow-up work. |
+| Threading | Overlay publishes a copied frame snapshot; `MainActivity` still shares mutable latest-frame dimensions | Associate dimensions with each result and validate lifecycle/thread ownership in follow-up work. |
 | Memory | Per-frame bitmap preparation and rotation | Profile sustained allocation and cleanup before establishing performance targets. |
 | Reliability | Errors mostly logged; no recovery or watchdog | Add explicit recoverable failure/stale-result behavior before broader evaluation. |
 | Privacy | In-memory processing; no application upload or recording implementation | Preserve this behavior unless a separately specified persistence/export feature is added. |
@@ -109,11 +109,11 @@ There is no warm-up exclusion, controlled input resolution, recorded sample set,
 
 | Priority | Finding | Consequence / proposed response |
 | --- | --- | --- |
-| High | Test source imports lack corresponding module test dependencies | Restore a runnable test setup; catalog aliases alone do not add dependencies. |
+| Resolved (2026-09-13) | Test source imports lacked corresponding module test dependencies | JUnit and AndroidX test dependencies are now declared using the existing catalog aliases. |
 | High | A second `SkeletonOverlay` with the production fully qualified name lives in `src/test` | Remove or rename the duplicate as appropriate; replace it with tests of production behavior. |
 | High | Current metric labels can be mistaken for capture FPS or pure inference time | Document their exact semantics now; improve labels and measurement boundaries in a future code change. |
 | High | No recorded device validation or sustained-run evidence | Execute the acceptance matrix before describing the prototype as validated. |
-| Medium | Asynchronous results use latest-frame dimensions; overlay fields are not atomically published | Associate geometry with each result and publish a coherent rendering state. |
+| Medium | Asynchronous results use latest-frame dimensions; overlay publication was made atomic on 2026-09-13 | Associate geometry with each result; drawing now uses one copied frame snapshot. |
 | Medium | Bitmap copy does not explicitly handle row stride; preview geometry is assumed | Validate padded frames and aspect-ratio/rotation cases, then use robust conversion/transforms if needed. |
 | Medium | Frame preparation allocates bitmaps; image resource ownership is not explicit | Profile memory and verify safe resource lifetime around asynchronous detection. |
 | Medium | Denial/runtime errors lack recovery; callback loss can leave stale UI | Add persistent error states, retry behavior, and stale-result clearing. |
