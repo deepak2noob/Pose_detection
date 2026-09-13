@@ -99,7 +99,7 @@ flowchart TD
     Camera[Rear camera] --> Preview[CameraX Preview / FIT_CENTER]
     Camera --> Analysis[CameraX RGBA analysis / keep latest]
     Analysis --> Convert[Copy to bitmap and rotate]
-    Convert --> Pose[MediaPipe Full / CPU / LIVE_STREAM]
+    Convert --> Pose[MediaPipe Full / GPU / LIVE_STREAM]
     Pose --> Result[Result callback]
     Result --> Overlay[SkeletonOverlay / Canvas]
     Result --> Metrics[Status text and Logcat]
