@@ -10,7 +10,9 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.Gravity
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 
@@ -38,47 +40,106 @@ import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
 
+    // =========================================================
+    // EXERCISE MODE
+    // =========================================================
+
+    private enum class ExerciseMode {
+        SQUAT,
+        PUSH_UP
+    }
+
+
+    /*
+     * Volatile because the selector is changed on the UI thread,
+     * while pose results may arrive on another thread.
+     */
+    @Volatile
+    private var selectedExercise =
+        ExerciseMode.SQUAT
+
+
+    /*
+     * Protect analyzer state while switching exercise modes.
+     */
+    private val exerciseLock =
+        Any()
+
+
+    // =========================================================
+    // UI
+    // =========================================================
+
     private lateinit var previewView: PreviewView
+
     private lateinit var skeletonOverlay: SkeletonOverlay
+
     private lateinit var statusText: TextView
 
-    //edited started
     private lateinit var exerciseText: TextView
+
+    private lateinit var squatButton: Button
+
+    private lateinit var pushUpButton: Button
+
+
+    // =========================================================
+    // EXERCISE ANALYZERS
+    // =========================================================
 
     private val squatExercise =
         SquatExercise()
 
+
+    private val pushUpExercise =
+        PushUpExercise()
+
+
     private var lastExerciseUiUpdate =
         0L
-    //edited ended
+
+
+    // =========================================================
+    // CAMERA / MEDIAPIPE
+    // =========================================================
 
     private lateinit var cameraExecutor: ExecutorService
 
-    private var poseLandmarker: PoseLandmarker? = null
+    private var poseLandmarker: PoseLandmarker? =
+        null
 
 
+    // =========================================================
+    // FPS COUNTER
+    // =========================================================
 
-    // -------------------------
-    // FPS counter
-    // -------------------------
+    private var poseImageWidth =
+        0
 
-    private var poseImageWidth = 0
-    private var poseImageHeight = 0
-    private var poseFrameCount = 0
-    private var fpsWindowStart = 0L
+    private var poseImageHeight =
+        0
+
+    private var poseFrameCount =
+        0
+
+    private var fpsWindowStart =
+        0L
 
 
     companion object {
-        private const val TAG = "PoseBenchmark"
+
+        private const val TAG =
+            "PoseBenchmark"
+
 
         private const val MODEL_NAME =
             "pose_landmarker_full.task"
     }
 
 
-    // -------------------------
-    // Camera permission
-    // -------------------------
+    // =========================================================
+    // CAMERA PERMISSION
+    // =========================================================
 
     private val cameraPermissionLauncher =
         registerForActivityResult(
@@ -100,19 +161,38 @@ class MainActivity : ComponentActivity() {
         }
 
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+    // =========================================================
+    // ON CREATE
+    // =========================================================
 
-        // -------------------------
-        // UI
-        // -------------------------
+    override fun onCreate(
+        savedInstanceState: Bundle?
+    ) {
 
-        val root = FrameLayout(this)
+        super.onCreate(
+            savedInstanceState
+        )
 
-        previewView = PreviewView(this)
+
+        // =====================================================
+        // ROOT
+        // =====================================================
+
+        val root =
+            FrameLayout(this)
+
+
+        // =====================================================
+        // CAMERA PREVIEW
+        // =====================================================
+
+        previewView =
+            PreviewView(this)
+
 
         previewView.scaleType =
             PreviewView.ScaleType.FIT_CENTER
+
 
         root.addView(
             previewView,
@@ -122,8 +202,14 @@ class MainActivity : ComponentActivity() {
             )
         )
 
+
+        // =====================================================
+        // SKELETON OVERLAY
+        // =====================================================
+
         skeletonOverlay =
             SkeletonOverlay(this)
+
 
         root.addView(
             skeletonOverlay,
@@ -134,32 +220,43 @@ class MainActivity : ComponentActivity() {
         )
 
 
-        // FPS / pose information overlay
+        // =====================================================
+        // FPS / MEDIAPIPE STATUS
+        // =====================================================
 
-        statusText = TextView(this).apply {
+        statusText =
+            TextView(this).apply {
 
-            text = "MediaPipe Full\nLoading model..."
+                text =
+                    "MediaPipe Full\nLoading model..."
 
-            setTextColor(Color.WHITE)
 
-            textSize = 16f
-
-            setBackgroundColor(
-                Color.argb(
-                    150,
-                    0,
-                    0,
-                    0
+                setTextColor(
+                    Color.WHITE
                 )
-            )
 
-            setPadding(
-                24,
-                16,
-                24,
-                16
-            )
-        }
+
+                textSize =
+                    16f
+
+
+                setBackgroundColor(
+                    Color.argb(
+                        150,
+                        0,
+                        0,
+                        0
+                    )
+                )
+
+
+                setPadding(
+                    24,
+                    16,
+                    24,
+                    16
+                )
+            }
 
 
         val statusParams =
@@ -169,10 +266,16 @@ class MainActivity : ComponentActivity() {
             ).apply {
 
                 gravity =
-                    Gravity.TOP or Gravity.START
+                    Gravity.TOP or
+                            Gravity.START
 
-                leftMargin = 20
-                topMargin = 20
+
+                leftMargin =
+                    20
+
+
+                topMargin =
+                    20
             }
 
 
@@ -182,9 +285,115 @@ class MainActivity : ComponentActivity() {
         )
 
 
-// =====================================================
-// SQUAT INFORMATION UI
-// =====================================================
+        // =====================================================
+        // EXERCISE SELECTOR
+        // =====================================================
+
+        squatButton =
+            Button(this).apply {
+
+                text =
+                    "SQUAT"
+
+
+                isAllCaps =
+                    false
+
+
+                setOnClickListener {
+
+                    selectExercise(
+                        ExerciseMode.SQUAT
+                    )
+                }
+            }
+
+
+        pushUpButton =
+            Button(this).apply {
+
+                text =
+                    "PUSH-UP"
+
+
+                isAllCaps =
+                    false
+
+
+                setOnClickListener {
+
+                    selectExercise(
+                        ExerciseMode.PUSH_UP
+                    )
+                }
+            }
+
+
+        val selectorLayout =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.HORIZONTAL
+
+
+                gravity =
+                    Gravity.CENTER
+
+
+                setPadding(
+                    12,
+                    8,
+                    12,
+                    8
+                )
+
+
+                setBackgroundColor(
+                    Color.argb(
+                        135,
+                        0,
+                        0,
+                        0
+                    )
+                )
+
+
+                addView(
+                    squatButton
+                )
+
+
+                addView(
+                    pushUpButton
+                )
+            }
+
+
+        val selectorParams =
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+
+                gravity =
+                    Gravity.TOP or
+                            Gravity.CENTER_HORIZONTAL
+
+
+                topMargin =
+                    28
+            }
+
+
+        root.addView(
+            selectorLayout,
+            selectorParams
+        )
+
+
+        // =====================================================
+        // EXERCISE INFORMATION UI
+        // =====================================================
 
         exerciseText =
             TextView(this).apply {
@@ -193,15 +402,19 @@ class MainActivity : ComponentActivity() {
                     "SQUAT\n" +
                             "Stand with your full body visible"
 
+
                 setTextColor(
                     Color.WHITE
                 )
 
+
                 textSize =
                     18f
 
+
                 gravity =
                     Gravity.CENTER
+
 
                 setBackgroundColor(
                     Color.argb(
@@ -211,6 +424,7 @@ class MainActivity : ComponentActivity() {
                         0
                     )
                 )
+
 
                 setPadding(
                     28,
@@ -231,11 +445,14 @@ class MainActivity : ComponentActivity() {
                     Gravity.BOTTOM or
                             Gravity.CENTER_HORIZONTAL
 
+
                 leftMargin =
                     20
 
+
                 rightMargin =
                     20
+
 
                 bottomMargin =
                     40
@@ -248,18 +465,24 @@ class MainActivity : ComponentActivity() {
         )
 
 
-        setContentView(root)
+        setContentView(
+            root
+        )
 
 
-        // -------------------------
-        // Background thread
-        // -------------------------
+        /*
+         * SQUAT is selected by default.
+         */
+        updateSelectorUi()
+
+
+        // =====================================================
+        // BACKGROUND THREAD
+        // =====================================================
 
         cameraExecutor =
             Executors.newSingleThreadExecutor()
 
-
-        // Load MediaPipe in background
 
         cameraExecutor.execute {
 
@@ -267,15 +490,16 @@ class MainActivity : ComponentActivity() {
         }
 
 
-        // -------------------------
-        // Permission
-        // -------------------------
+        // =====================================================
+        // CAMERA PERMISSION
+        // =====================================================
 
         if (
             ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.CAMERA
-            ) == PackageManager.PERMISSION_GRANTED
+            ) ==
+            PackageManager.PERMISSION_GRANTED
         ) {
 
             startCamera()
@@ -290,6 +514,111 @@ class MainActivity : ComponentActivity() {
 
 
     // =========================================================
+    // EXERCISE SELECTOR
+    // =========================================================
+
+    private fun selectExercise(
+        newExercise: ExerciseMode
+    ) {
+
+        if (
+            selectedExercise ==
+            newExercise
+        ) {
+
+            return
+        }
+
+
+        synchronized(
+            exerciseLock
+        ) {
+
+            /*
+             * Switching exercises starts a clean session.
+             *
+             * This prevents an unfinished squat/push-up state
+             * from being carried into another exercise.
+             */
+            squatExercise.resetSession()
+
+            pushUpExercise.resetSession()
+
+
+            selectedExercise =
+                newExercise
+        }
+
+
+        lastExerciseUiUpdate =
+            0L
+
+
+        updateSelectorUi()
+
+
+        exerciseText.setTextColor(
+            Color.WHITE
+        )
+
+
+        exerciseText.text =
+
+            when (newExercise) {
+
+                ExerciseMode.SQUAT ->
+
+                    "SQUAT\n" +
+                            "Stand with your full body visible"
+
+
+                ExerciseMode.PUSH_UP ->
+
+                    "PUSH-UP\n" +
+                            "Face the camera and keep both arms visible"
+            }
+
+
+        Log.d(
+            TAG,
+            "Exercise selected: $newExercise"
+        )
+    }
+
+
+    private fun updateSelectorUi() {
+
+        val squatSelected =
+            selectedExercise ==
+                    ExerciseMode.SQUAT
+
+
+        squatButton.alpha =
+            if (squatSelected) {
+                1.0f
+            } else {
+                0.50f
+            }
+
+
+        pushUpButton.alpha =
+            if (squatSelected) {
+                0.50f
+            } else {
+                1.0f
+            }
+
+
+        squatButton.isEnabled =
+            !squatSelected
+
+
+        pushUpButton.isEnabled =
+            squatSelected
+    }
+
+
+    // =========================================================
     // MEDIAPIPE SETUP
     // =========================================================
 
@@ -299,9 +628,6 @@ class MainActivity : ComponentActivity() {
 
             val baseOptions =
                 BaseOptions.builder()
-
-                    // Start with CPU.
-                    // We will benchmark GPU later.
 
                     .setDelegate(
                         Delegate.GPU
@@ -323,9 +649,12 @@ class MainActivity : ComponentActivity() {
                         baseOptions
                     )
 
-                    // ONE PERSON ONLY
-
-                    .setNumPoses(1)
+                    /*
+                     * ONE PERSON ONLY.
+                     */
+                    .setNumPoses(
+                        1
+                    )
 
                     .setMinPoseDetectionConfidence(
                         0.5f
@@ -424,9 +753,9 @@ class MainActivity : ComponentActivity() {
                     cameraProviderFuture.get()
 
 
-                // -------------------------
+                // -------------------------------------------------
                 // Preview
-                // -------------------------
+                // -------------------------------------------------
 
                 val preview =
                     Preview.Builder()
@@ -439,9 +768,9 @@ class MainActivity : ComponentActivity() {
                         }
 
 
-                // -------------------------
+                // -------------------------------------------------
                 // Image Analysis
-                // -------------------------
+                // -------------------------------------------------
 
                 val imageAnalysis =
                     ImageAnalysis.Builder()
@@ -450,11 +779,6 @@ class MainActivity : ComponentActivity() {
                             ImageAnalysis
                                 .STRATEGY_KEEP_ONLY_LATEST
                         )
-
-                        /*
-                         * MediaPipe sample works with
-                         * RGBA frames.
-                         */
 
                         .setOutputImageFormat(
                             ImageAnalysis
@@ -474,9 +798,9 @@ class MainActivity : ComponentActivity() {
                 }
 
 
-                // -------------------------
+                // -------------------------------------------------
                 // Bind camera
-                // -------------------------
+                // -------------------------------------------------
 
                 cameraProvider.unbindAll()
 
@@ -521,15 +845,11 @@ class MainActivity : ComponentActivity() {
         val landmarker =
             poseLandmarker
 
-        Log.d(
-            TAG,
-            "Camera analysis = ${imageProxy.width}x${imageProxy.height}"
-        )
 
-
-        // Model still loading
-
-        if (landmarker == null) {
+        if (
+            landmarker ==
+            null
+        ) {
 
             imageProxy.close()
 
@@ -547,7 +867,9 @@ class MainActivity : ComponentActivity() {
                 .rotationDegrees
 
 
-        // Create bitmap from RGBA camera frame
+        // -------------------------------------------------
+        // RGBA camera frame -> bitmap
+        // -------------------------------------------------
 
         val bitmapBuffer =
             Bitmap.createBitmap(
@@ -564,11 +886,14 @@ class MainActivity : ComponentActivity() {
                     .planes[0]
                     .buffer
 
+
             buffer.rewind()
+
 
             bitmapBuffer.copyPixelsFromBuffer(
                 buffer
             )
+
 
         } catch (e: Exception) {
 
@@ -578,19 +903,19 @@ class MainActivity : ComponentActivity() {
                 e
             )
 
+
             return
 
-        } finally {
 
-            /*
-             * ALWAYS close ImageProxy.
-             */
+        } finally {
 
             imageProxy.close()
         }
 
 
-        // Rotate frame correctly
+        // -------------------------------------------------
+        // Rotate frame
+        // -------------------------------------------------
 
         val matrix =
             Matrix().apply {
@@ -612,11 +937,18 @@ class MainActivity : ComponentActivity() {
                 true
             )
 
-        poseImageWidth = rotatedBitmap.width
-        poseImageHeight = rotatedBitmap.height
+
+        poseImageWidth =
+            rotatedBitmap.width
 
 
+        poseImageHeight =
+            rotatedBitmap.height
+
+
+        // -------------------------------------------------
         // Bitmap -> MediaPipe image
+        // -------------------------------------------------
 
         val mpImage =
             BitmapImageBuilder(
@@ -624,7 +956,9 @@ class MainActivity : ComponentActivity() {
             ).build()
 
 
+        // -------------------------------------------------
         // Async inference
+        // -------------------------------------------------
 
         try {
 
@@ -632,6 +966,7 @@ class MainActivity : ComponentActivity() {
                 mpImage,
                 frameTime
             )
+
 
         } catch (e: Exception) {
 
@@ -670,21 +1005,35 @@ class MainActivity : ComponentActivity() {
                 .isNotEmpty()
 
 
+        /*
+         * Only ONE of these will contain a result per frame.
+         */
         var squatResult: SquatExerciseResult? =
             null
 
 
+        var pushUpResult: PushUpExerciseResult? =
+            null
+
+
+        /*
+         * Remember which exercise was used for this specific
+         * pose result.
+         */
+        val activeExercise: ExerciseMode
+
+
         // =====================================================
-        // POSE + SQUAT
+        // SKELETON
         // =====================================================
 
         if (poseDetected) {
 
             val landmarks =
-                result.landmarks()[0]
+                result
+                    .landmarks()[0]
 
 
-            // Draw visible skeleton.
             skeletonOverlay.setLandmarks(
                 landmarks,
                 poseImageWidth,
@@ -692,101 +1041,257 @@ class MainActivity : ComponentActivity() {
             )
 
 
-            // Analyze squat using the same landmarks.
-            squatResult =
-                squatExercise.analyze(
-                    landmarks
-                )
+            // =================================================
+            // SELECTED EXERCISE ONLY
+            // =================================================
+
+            synchronized(
+                exerciseLock
+            ) {
+
+                activeExercise =
+                    selectedExercise
+
+
+                when (activeExercise) {
+
+                    ExerciseMode.SQUAT -> {
+
+                        /*
+                         * ONLY SquatExercise runs.
+                         */
+                        squatResult =
+                            squatExercise.analyze(
+                                landmarks
+                            )
+                    }
+
+
+                    ExerciseMode.PUSH_UP -> {
+
+                        /*
+                         * ONLY PushUpExercise runs.
+                         */
+                        pushUpResult =
+                            pushUpExercise.analyze(
+                                landmarks
+                            )
+                    }
+                }
+            }
 
 
         } else {
 
             skeletonOverlay.clear()
 
-            squatExercise.onPoseLost()
+
+            synchronized(
+                exerciseLock
+            ) {
+
+                activeExercise =
+                    selectedExercise
+
+
+                when (activeExercise) {
+
+                    ExerciseMode.SQUAT -> {
+
+                        squatExercise.onPoseLost()
+                    }
+
+
+                    ExerciseMode.PUSH_UP -> {
+
+                        pushUpExercise.onPoseLost()
+                    }
+                }
+            }
         }
 
 
         // =====================================================
-        // SQUAT UI
+        // EXERCISE UI
         // =====================================================
 
         if (
             currentTime -
-            lastExerciseUiUpdate >= 100 
+            lastExerciseUiUpdate >=
+            100
         ) {
 
             lastExerciseUiUpdate =
                 currentTime
 
 
-            val exerciseDisplay =
+            val exerciseDisplay: String
 
-                if (
-                    squatResult == null
-                ) {
+            val exerciseColor: Int
 
-                    "SQUAT\nNo pose detected"
 
-                } else if (
-                    !squatResult.bodyVisible
-                ) {
+            when (activeExercise) {
 
-                    "SQUAT\n" +
-                            squatResult.feedback
+                // =============================================
+                // SQUAT UI
+                // =============================================
 
-                } else {
+                ExerciseMode.SQUAT -> {
 
-                    String.format(
-                        Locale.US,
+                    exerciseDisplay =
 
-                        "SQUAT  |  Reps: %d\n" +
-                                "Phase: %s\n" +
-                                "Knee: %.0f°\n" +
-                                "Torso: %.0f°\n" +
-                                "%s",
+                        if (
+                            squatResult ==
+                            null
+                        ) {
 
-                        squatResult.repCount,
+                            "SQUAT\nNo pose detected"
 
-                        squatResult.phase.name,
 
-                        squatResult.averageKneeAngle,
+                        } else if (
+                            !squatResult!!.bodyVisible
+                        ) {
 
-                        squatResult.torsoLeanAngle,
+                            "SQUAT\n" +
+                                    squatResult!!.feedback
 
-                        squatResult.feedback
-                    )
+
+                        } else {
+
+                            String.format(
+                                Locale.US,
+
+                                "SQUAT  |  Reps: %d\n" +
+                                        "Phase: %s\n" +
+                                        "Knee: %.0f°\n" +
+                                        "Torso: %.0f°\n" +
+                                        "%s",
+
+                                squatResult!!.repCount,
+
+                                squatResult!!.phase.name,
+
+                                squatResult!!.averageKneeAngle,
+
+                                squatResult!!.torsoLeanAngle,
+
+                                squatResult!!.feedback
+                            )
+                        }
+
+
+                    exerciseColor =
+
+                        if (
+                            squatResult !=
+                            null &&
+                            squatResult!!.bodyVisible &&
+                            squatResult!!.postureGood
+                        ) {
+
+                            Color.rgb(
+                                120,
+                                255,
+                                120
+                            )
+
+                        } else {
+
+                            Color.WHITE
+                        }
                 }
 
 
-            val exerciseColor =
+                // =============================================
+                // PUSH-UP UI
+                // =============================================
 
-                if (
-                    squatResult != null &&
-                    squatResult.bodyVisible &&
-                    squatResult.postureGood
-                ) {
+                ExerciseMode.PUSH_UP -> {
 
-                    Color.rgb(
-                        120,
-                        255,
-                        120
-                    )
+                    exerciseDisplay =
 
-                } else {
+                        if (
+                            pushUpResult ==
+                            null
+                        ) {
 
-                    Color.WHITE
+                            "PUSH-UP\nNo pose detected"
+
+
+                        } else if (
+                            !pushUpResult!!.bodyVisible
+                        ) {
+
+                            "PUSH-UP\n" +
+                                    pushUpResult!!.feedback
+
+
+                        } else {
+
+                            String.format(
+                                Locale.US,
+
+                                "PUSH-UP  |  Reps: %d\n" +
+                                        "Phase: %s\n" +
+                                        "Elbow: %.0f°\n" +
+                                        "L/R Difference: %.0f°\n" +
+                                        "%s",
+
+                                pushUpResult!!.repCount,
+
+                                pushUpResult!!.phase.name,
+
+                                pushUpResult!!.averageElbowAngle,
+
+                                pushUpResult!!.elbowDifference,
+
+                                pushUpResult!!.feedback
+                            )
+                        }
+
+
+                    exerciseColor =
+
+                        if (
+                            pushUpResult !=
+                            null &&
+                            pushUpResult!!.bodyVisible &&
+                            pushUpResult!!.postureGood
+                        ) {
+
+                            Color.rgb(
+                                120,
+                                255,
+                                120
+                            )
+
+                        } else {
+
+                            Color.WHITE
+                        }
                 }
+            }
 
 
             runOnUiThread {
 
-                exerciseText.text =
-                    exerciseDisplay
+                /*
+                 * Avoid displaying a stale result from the exercise
+                 * that was selected just before the user switched.
+                 */
+                if (
+                    selectedExercise ==
+                    activeExercise
+                ) {
 
-                exerciseText.setTextColor(
-                    exerciseColor
-                )
+                    exerciseText.text =
+                        exerciseDisplay
+
+
+                    exerciseText.setTextColor(
+                        exerciseColor
+                    )
+                }
             }
         }
 
@@ -814,7 +1319,10 @@ class MainActivity : ComponentActivity() {
                     result.timestampMs()
 
 
-        if (elapsed >= 1000) {
+        if (
+            elapsed >=
+            1000
+        ) {
 
             val fps =
                 poseFrameCount *
@@ -866,26 +1374,71 @@ class MainActivity : ComponentActivity() {
             }
 
 
-            if (squatResult != null) {
+            // =================================================
+            // DEBUG LOG FOR SELECTED EXERCISE
+            // =================================================
+
+            when (activeExercise) {
+
+                ExerciseMode.SQUAT -> {
+
+                    if (
+                        squatResult !=
+                        null
+                    ) {
+
+                        Log.d(
+                            TAG,
+
+                            "Exercise=SQUAT " +
+                                    "FPS=${"%.1f".format(fps)} " +
+                                    "Pose=$poseText " +
+                                    "Reps=${squatResult!!.repCount} " +
+                                    "Phase=${squatResult!!.phase} " +
+                                    "Knee=${"%.1f".format(squatResult!!.averageKneeAngle)} " +
+                                    "Torso=${"%.1f".format(squatResult!!.torsoLeanAngle)} " +
+                                    "Feedback=${squatResult!!.feedback}"
+                        )
+                    }
+                }
+
+
+                ExerciseMode.PUSH_UP -> {
+
+                    if (
+                        pushUpResult !=
+                        null
+                    ) {
+
+                        Log.d(
+                            TAG,
+
+                            "Exercise=PUSH_UP " +
+                                    "FPS=${"%.1f".format(fps)} " +
+                                    "Pose=$poseText " +
+                                    "Reps=${pushUpResult!!.repCount} " +
+                                    "Phase=${pushUpResult!!.phase} " +
+                                    "Elbow=${"%.1f".format(pushUpResult!!.averageElbowAngle)} " +
+                                    "Difference=${"%.1f".format(pushUpResult!!.elbowDifference)} " +
+                                    "Feedback=${pushUpResult!!.feedback}"
+                        )
+                    }
+                }
+            }
+
+
+            if (
+                squatResult ==
+                null &&
+                pushUpResult ==
+                null
+            ) {
 
                 Log.d(
                     TAG,
 
-                    "FPS=${"%.1f".format(fps)} " +
-                            "Pose=$poseText " +
-                            "Reps=${squatResult.repCount} " +
-                            "Phase=${squatResult.phase} " +
-                            "Knee=${"%.1f".format(squatResult.averageKneeAngle)} " +
-                            "Torso=${"%.1f".format(squatResult.torsoLeanAngle)} " +
-                            "Feedback=${squatResult.feedback}"
-                )
-
-            } else {
-
-                Log.d(
-                    TAG,
-
-                    "FPS=${"%.1f".format(fps)} " +
+                    "Exercise=$activeExercise " +
+                            "FPS=${"%.1f".format(fps)} " +
                             "Pose=$poseText " +
                             "Landmarks=$landmarkCount " +
                             "Latency=${latency}ms"
@@ -900,16 +1453,23 @@ class MainActivity : ComponentActivity() {
     // =========================================================
 
     override fun onDestroy() {
+
         super.onDestroy()
 
 
-        if (::cameraExecutor.isInitialized) {
+        if (
+            ::cameraExecutor
+                .isInitialized
+        ) {
 
             cameraExecutor.execute {
 
-                poseLandmarker?.close()
+                poseLandmarker
+                    ?.close()
 
-                poseLandmarker = null
+
+                poseLandmarker =
+                    null
             }
 
 
