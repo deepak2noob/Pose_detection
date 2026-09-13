@@ -132,121 +132,154 @@ class SkeletonOverlay(context: Context) : View(context) {
         setGuidance(PostureGuidance())
     }
 
+    /*
+     * Draw only landmarks that are likely visible
+     * and actually lie inside the camera frame.
+     */
+    private fun isVisible(
+        landmark: NormalizedLandmark
+    ): Boolean {
+
+        val visibility =
+            landmark.visibility().orElse(0f)
+
+        return visibility >= MIN_VISIBILITY &&
+                landmark.x() in 0f..1f &&
+                landmark.y() in 0f..1f
+    }
+
+    /*
+     * Draw only landmarks that are likely visible
+     * and actually lie inside the camera frame.
+     */
+    private fun isVisible(
+        landmark: NormalizedLandmark
+    ): Boolean {
+
+        val visibility =
+            landmark.visibility().orElse(0f)
+
+        return visibility >= MIN_VISIBILITY &&
+                landmark.x() in 0f..1f &&
+                landmark.y() in 0f..1f
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        if (landmarks.isEmpty() || imageWidth <= 0 || imageHeight <= 0) return
-        updateScreenCoordinates()
-        // Separate rendering layers leave room for future target/ghost guidance.
-        drawBones(canvas)
-        drawJoints(canvas)
-        drawCorrections(canvas)
-    }
 
-    private fun updateScreenCoordinates() {
-        // Preserve the camera's FIT_CENTER scale and letterbox offsets.
-        val scale = min(width.toFloat() / imageWidth, height.toFloat() / imageHeight)
-        displayedWidth = imageWidth * scale
-        displayedHeight = imageHeight * scale
-        offsetX = (width - displayedWidth) / 2f
-        offsetY = (height - displayedHeight) / 2f
-        for (index in JOINTS) {
-            val filter = filters[index]
-            renderable[index] = filter.visible
-            if (filter.visible) {
-                screenX[index] = filter.x * displayedWidth + offsetX
-                screenY[index] = filter.y * displayedHeight + offsetY
-            }
+        if (
+            landmarks.isEmpty() ||
+            imageWidth <= 0 ||
+            imageHeight <= 0
+        ) {
+            return
         }
-    }
 
-    private fun drawBones(canvas: Canvas) {
-        for (i in BONES.indices) {
-            val (start, end) = BONES[i]
-            if (!renderable[start] || !renderable[end]) continue
-            bonePaint.color = colorFor(boneStates[i])
-            canvas.drawLine(screenX[start], screenY[start], screenX[end], screenY[end], boneOutlinePaint)
-            canvas.drawLine(screenX[start], screenY[start], screenX[end], screenY[end], bonePaint)
+        /*
+         * PreviewView uses FIT_CENTER.
+         */
+
+        val scaleFactor = min(
+            width.toFloat() / imageWidth,
+            height.toFloat() / imageHeight
+        )
+
+        val displayedWidth =
+            imageWidth * scaleFactor
+
+        val displayedHeight =
+            imageHeight * scaleFactor
+
+        val offsetX =
+            (width - displayedWidth) / 2f
+
+        val offsetY =
+            (height - displayedHeight) / 2f
+
+
+        fun getX(
+            landmark: NormalizedLandmark
+        ): Float {
+
+            return (
+                    landmark.x() *
+                            imageWidth *
+                            scaleFactor
+                    ) + offsetX
         }
-    }
 
-    private fun drawJoints(canvas: Canvas) {
-        for (index in JOINTS) {
-            if (!renderable[index]) continue
-            jointPaint.color = colorFor(jointStates[index])
-            canvas.drawCircle(screenX[index], screenY[index],
-                (JOINT_RADIUS + JOINT_OUTLINE_WIDTH) * density, jointOutlinePaint)
-            canvas.drawCircle(screenX[index], screenY[index], JOINT_RADIUS * density, jointPaint)
+
+        fun getY(
+            landmark: NormalizedLandmark
+        ): Float {
+
+            return (
+                    landmark.y() *
+                            imageHeight *
+                            scaleFactor
+                    ) + offsetY
         }
-    }
 
-    private fun drawCorrections(canvas: Canvas) {
-        for (index in JOINTS) {
-            if (!renderable[index]) continue
-            val target = targets[index]
-            if (target != null) drawTarget(canvas, index, target)
-            val direction = directions[index] ?: continue
-            if (direction == CorrectionDirection.NONE) continue
-            val dx = when (direction) {
-                CorrectionDirection.LEFT -> -1f
-                CorrectionDirection.RIGHT -> 1f
-                else -> 0f
+
+        // -------------------------
+        // Draw visible lines only
+        // -------------------------
+
+        for ((startIndex, endIndex) in connections) {
+
+            if (
+                startIndex >= landmarks.size ||
+                endIndex >= landmarks.size
+            ) {
+                continue
             }
-            val dy = when (direction) {
-                CorrectionDirection.UP -> -1f
-                CorrectionDirection.DOWN -> 1f
-                else -> 0f
+
+            val start =
+                landmarks[startIndex]
+
+            val end =
+                landmarks[endIndex]
+
+
+            /*
+             * Do not draw a bone if either endpoint
+             * is considered hidden / unreliable.
+             */
+            if (
+                !isVisible(start) ||
+                !isVisible(end)
+            ) {
+                continue
             }
-            if (target != null) {
-                val targetX = target.x * displayedWidth + offsetX
-                val targetY = target.y * displayedHeight + offsetY
-                val deltaX = targetX - screenX[index]
-                val deltaY = targetY - screenY[index]
-                val distance = kotlin.math.hypot(deltaX, deltaY)
-                if (distance >= (ARROW_SIZE + ARROW_GAP + TARGET_MARKER_RADIUS) * density) {
-                    val unitX = deltaX / distance
-                    val unitY = deltaY / distance
-                    arrowPaint.color = colorFor(jointStates[index])
-                    val fromX = screenX[index] + unitX * ARROW_GAP * density
-                    val fromY = screenY[index] + unitY * ARROW_GAP * density
-                    val toX = targetX - unitX * TARGET_MARKER_RADIUS * density
-                    val toY = targetY - unitY * TARGET_MARKER_RADIUS * density
-                    drawArrow(canvas, fromX, fromY, toX, toY, unitX, unitY, arrowOutlinePaint)
-                    drawArrow(canvas, fromX, fromY, toX, toY, unitX, unitY, arrowPaint)
-                    continue
-                }
-            }
-            // Small corrections still need a large arrow. Place it beside the target
-            // instead of running through (and beyond) the desired joint marker.
-            val sideGap = if (target != null) ARROW_TARGET_SIDE_GAP * density else 0f
-            val startX = screenX[index] + dx * ARROW_GAP * density - dy * sideGap
-            val startY = screenY[index] + dy * ARROW_GAP * density + dx * sideGap
-            val endX = startX + dx * ARROW_SIZE * density
-            val endY = startY + dy * ARROW_SIZE * density
-            arrowPaint.color = colorFor(jointStates[index])
-            drawArrow(canvas, startX, startY, endX, endY, dx, dy, arrowOutlinePaint)
-            drawArrow(canvas, startX, startY, endX, endY, dx, dy, arrowPaint)
+
+
+            canvas.drawLine(
+                getX(start),
+                getY(start),
+                getX(end),
+                getY(end),
+                linePaint
+            )
         }
-    }
 
-    private fun drawTarget(canvas: Canvas, index: Int, target: TargetJointPosition) {
-        val x = target.x * displayedWidth + offsetX
-        val y = target.y * displayedHeight + offsetY
-        val radius = TARGET_MARKER_RADIUS * density
-        targetPaint.color = colorFor(jointStates[index])
-        targetFillPaint.color = targetPaint.color
-        targetFillPaint.alpha = TARGET_FILL_ALPHA
-        canvas.drawCircle(x, y, radius, targetFillPaint)
-        canvas.drawCircle(x, y, radius, targetOutlinePaint)
-        canvas.drawCircle(x, y, radius, targetPaint)
-    }
 
-    private fun drawArrow(canvas: Canvas, startX: Float, startY: Float,
-                          endX: Float, endY: Float, dx: Float, dy: Float, paint: Paint) {
-        val head = ARROW_HEAD_SIZE * density
-        canvas.drawLine(startX, startY, endX, endY, paint)
-        canvas.drawLine(endX, endY, endX - dx * head - dy * head,
-            endY - dy * head + dx * head, paint)
-        canvas.drawLine(endX, endY, endX - dx * head + dy * head,
-            endY - dy * head - dx * head, paint)
+        // -------------------------
+        // Draw visible points only
+        // -------------------------
+
+        for (landmark in landmarks) {
+
+            if (!isVisible(landmark)) {
+                continue
+            }
+
+
+            canvas.drawCircle(
+                getX(landmark),
+                getY(landmark),
+                8f,
+                pointPaint
+            )
+        }
     }
 }
