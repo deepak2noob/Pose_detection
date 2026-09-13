@@ -42,6 +42,16 @@ class MainActivity : ComponentActivity() {
     private lateinit var skeletonOverlay: SkeletonOverlay
     private lateinit var statusText: TextView
 
+    //edited started
+    private lateinit var exerciseText: TextView
+
+    private val squatExercise =
+        SquatExercise()
+
+    private var lastExerciseUiUpdate =
+        0L
+    //edited ended
+
     private lateinit var cameraExecutor: ExecutorService
 
     private var poseLandmarker: PoseLandmarker? = null
@@ -171,6 +181,73 @@ class MainActivity : ComponentActivity() {
             statusParams
         )
 
+
+// =====================================================
+// SQUAT INFORMATION UI
+// =====================================================
+
+        exerciseText =
+            TextView(this).apply {
+
+                text =
+                    "SQUAT\n" +
+                            "Stand with your full body visible"
+
+                setTextColor(
+                    Color.WHITE
+                )
+
+                textSize =
+                    18f
+
+                gravity =
+                    Gravity.CENTER
+
+                setBackgroundColor(
+                    Color.argb(
+                        175,
+                        0,
+                        0,
+                        0
+                    )
+                )
+
+                setPadding(
+                    28,
+                    18,
+                    28,
+                    18
+                )
+            }
+
+
+        val exerciseParams =
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+
+                gravity =
+                    Gravity.BOTTOM or
+                            Gravity.CENTER_HORIZONTAL
+
+                leftMargin =
+                    20
+
+                rightMargin =
+                    20
+
+                bottomMargin =
+                    40
+            }
+
+
+        root.addView(
+            exerciseText,
+            exerciseParams
+        )
+
+
         setContentView(root)
 
 
@@ -227,7 +304,7 @@ class MainActivity : ComponentActivity() {
                     // We will benchmark GPU later.
 
                     .setDelegate(
-                        Delegate.CPU
+                        Delegate.GPU
                     )
 
                     .setModelAssetPath(
@@ -444,6 +521,11 @@ class MainActivity : ComponentActivity() {
         val landmarker =
             poseLandmarker
 
+        Log.d(
+            TAG,
+            "Camera analysis = ${imageProxy.width}x${imageProxy.height}"
+        )
+
 
         // Model still loading
 
@@ -587,20 +669,131 @@ class MainActivity : ComponentActivity() {
                 .landmarks()
                 .isNotEmpty()
 
+
+        var squatResult: SquatExerciseResult? =
+            null
+
+
+        // =====================================================
+        // POSE + SQUAT
+        // =====================================================
+
         if (poseDetected) {
 
-            skeletonOverlay.setLandmarks(
-                result.landmarks()[0],
-                        poseImageWidth,
-                poseImageHeight
+            val landmarks =
+                result.landmarks()[0]
 
+
+            // Draw visible skeleton.
+            skeletonOverlay.setLandmarks(
+                landmarks,
+                poseImageWidth,
+                poseImageHeight
             )
+
+
+            // Analyze squat using the same landmarks.
+            squatResult =
+                squatExercise.analyze(
+                    landmarks
+                )
+
 
         } else {
 
             skeletonOverlay.clear()
+
+            squatExercise.onPoseLost()
         }
 
+
+        // =====================================================
+        // SQUAT UI
+        // =====================================================
+
+        if (
+            currentTime -
+            lastExerciseUiUpdate >= 100 
+        ) {
+
+            lastExerciseUiUpdate =
+                currentTime
+
+
+            val exerciseDisplay =
+
+                if (
+                    squatResult == null
+                ) {
+
+                    "SQUAT\nNo pose detected"
+
+                } else if (
+                    !squatResult.bodyVisible
+                ) {
+
+                    "SQUAT\n" +
+                            squatResult.feedback
+
+                } else {
+
+                    String.format(
+                        Locale.US,
+
+                        "SQUAT  |  Reps: %d\n" +
+                                "Phase: %s\n" +
+                                "Knee: %.0f°\n" +
+                                "Torso: %.0f°\n" +
+                                "%s",
+
+                        squatResult.repCount,
+
+                        squatResult.phase.name,
+
+                        squatResult.averageKneeAngle,
+
+                        squatResult.torsoLeanAngle,
+
+                        squatResult.feedback
+                    )
+                }
+
+
+            val exerciseColor =
+
+                if (
+                    squatResult != null &&
+                    squatResult.bodyVisible &&
+                    squatResult.postureGood
+                ) {
+
+                    Color.rgb(
+                        120,
+                        255,
+                        120
+                    )
+
+                } else {
+
+                    Color.WHITE
+                }
+
+
+            runOnUiThread {
+
+                exerciseText.text =
+                    exerciseDisplay
+
+                exerciseText.setTextColor(
+                    exerciseColor
+                )
+            }
+        }
+
+
+        // =====================================================
+        // FPS
+        // =====================================================
 
         val landmarkCount =
 
@@ -621,13 +814,6 @@ class MainActivity : ComponentActivity() {
                     result.timestampMs()
 
 
-        /*
-         * Update once every ~1 second.
-         *
-         * Updating UI on every frame would
-         * itself waste performance.
-         */
-
         if (elapsed >= 1000) {
 
             val fps =
@@ -636,7 +822,9 @@ class MainActivity : ComponentActivity() {
                         elapsed
 
 
-            poseFrameCount = 0
+            poseFrameCount =
+                0
+
 
             fpsWindowStart =
                 currentTime
@@ -657,11 +845,13 @@ class MainActivity : ComponentActivity() {
             val displayText =
                 String.format(
                     Locale.US,
+
                     "MediaPipe Full\n" +
                             "Pose FPS: %.1f\n" +
                             "Pose: %s\n" +
                             "Landmarks: %d\n" +
                             "Latency: %d ms",
+
                     fps,
                     poseText,
                     landmarkCount,
@@ -676,13 +866,31 @@ class MainActivity : ComponentActivity() {
             }
 
 
-            Log.d(
-                TAG,
-                "FPS=${"%.1f".format(fps)} " +
-                        "Pose=$poseText " +
-                        "Landmarks=$landmarkCount " +
-                        "Latency=${latency}ms"
-            )
+            if (squatResult != null) {
+
+                Log.d(
+                    TAG,
+
+                    "FPS=${"%.1f".format(fps)} " +
+                            "Pose=$poseText " +
+                            "Reps=${squatResult.repCount} " +
+                            "Phase=${squatResult.phase} " +
+                            "Knee=${"%.1f".format(squatResult.averageKneeAngle)} " +
+                            "Torso=${"%.1f".format(squatResult.torsoLeanAngle)} " +
+                            "Feedback=${squatResult.feedback}"
+                )
+
+            } else {
+
+                Log.d(
+                    TAG,
+
+                    "FPS=${"%.1f".format(fps)} " +
+                            "Pose=$poseText " +
+                            "Landmarks=$landmarkCount " +
+                            "Latency=${latency}ms"
+                )
+            }
         }
     }
 
