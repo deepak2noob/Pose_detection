@@ -12,6 +12,10 @@ class SkeletonOverlay(
     context: Context
 ) : View(context) {
 
+    companion object {
+        private const val MIN_VISIBILITY = 0.4f
+    }
+
     private var landmarks: List<NormalizedLandmark> = emptyList()
 
     private var imageWidth = 1
@@ -106,6 +110,22 @@ class SkeletonOverlay(
         postInvalidate()
     }
 
+    /*
+     * Draw only landmarks that are likely visible
+     * and actually lie inside the camera frame.
+     */
+    private fun isVisible(
+        landmark: NormalizedLandmark
+    ): Boolean {
+
+        val visibility =
+            landmark.visibility().orElse(0f)
+
+        return visibility >= MIN_VISIBILITY &&
+                landmark.x() in 0f..1f &&
+                landmark.y() in 0f..1f
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
@@ -119,9 +139,6 @@ class SkeletonOverlay(
 
         /*
          * PreviewView uses FIT_CENTER.
-         *
-         * Scale camera image while maintaining
-         * aspect ratio.
          */
 
         val scaleFactor = min(
@@ -134,11 +151,6 @@ class SkeletonOverlay(
 
         val displayedHeight =
             imageHeight * scaleFactor
-
-        /*
-         * Camera image is centered inside
-         * PreviewView.
-         */
 
         val offsetX =
             (width - displayedWidth) / 2f
@@ -172,7 +184,7 @@ class SkeletonOverlay(
 
 
         // -------------------------
-        // Draw lines
+        // Draw visible lines only
         // -------------------------
 
         for ((startIndex, endIndex) in connections) {
@@ -184,8 +196,24 @@ class SkeletonOverlay(
                 continue
             }
 
-            val start = landmarks[startIndex]
-            val end = landmarks[endIndex]
+            val start =
+                landmarks[startIndex]
+
+            val end =
+                landmarks[endIndex]
+
+
+            /*
+             * Do not draw a bone if either endpoint
+             * is considered hidden / unreliable.
+             */
+            if (
+                !isVisible(start) ||
+                !isVisible(end)
+            ) {
+                continue
+            }
+
 
             canvas.drawLine(
                 getX(start),
@@ -198,10 +226,15 @@ class SkeletonOverlay(
 
 
         // -------------------------
-        // Draw points
+        // Draw visible points only
         // -------------------------
 
         for (landmark in landmarks) {
+
+            if (!isVisible(landmark)) {
+                continue
+            }
+
 
             canvas.drawCircle(
                 getX(landmark),
